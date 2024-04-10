@@ -1,8 +1,14 @@
 package skv_go
 
 import (
+	"errors"
+	"io"
+	"os"
 	"skv-go/data"
 	"skv-go/index"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -15,6 +21,40 @@ type DB struct {
 	olderFiles map[uint32]*data.DataFile
 	//内存索引
 	index index.Indexer
+	//文件id列表，仅在加载索引时使用
+	fileIds []uint32
+}
+
+// Open 打开数据库实例
+func Open(options Options) (*DB, error) {
+	//校验配置项
+	if err := checkOptions(options); err != nil {
+		return nil, err
+	}
+
+	//如果配置项中的文件路径不存在，则创建
+	if _, err := os.Stat(options.DirPath); err != nil {
+		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil {
+			return nil, err
+		}
+	}
+
+	//初始化DB实例结构体
+	db := &DB{
+		options:    options,
+		rw:         new(sync.RWMutex),
+		olderFiles: make(map[uint32]*data.DataFile),
+		index:      index.NewIndexer(options.IndexType),
+	}
+
+	//加载数据文件
+	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+	if err := db.loadIndexFromDataFiles(); err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
 // Put 写入Key/Value数据，Key不能为空
@@ -64,7 +104,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrDataFileNotFound
 	}
 	//根据偏移量读取数据
-	logRecord, err := dataFile.Read(pos.Offset)
+	logRecord, _, err := dataFile.Read(pos.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -130,5 +170,101 @@ func (db *DB) setActiveFile() error {
 		return err
 	}
 	db.activeFile = dataFile
+	return nil
+}
+
+// loadDataFiles 加载数据文件
+func (db *DB) loadDataFiles() error {
+	dirEntries, err := os.ReadDir(db.options.DirPath)
+	if err != nil {
+		return err
+	}
+	var fileIds []uint32
+	//遍历目录中的所有文件，找到以.data结尾的文件
+	for _, dirEntry := range dirEntries {
+		if strings.HasSuffix(dirEntry.Name(), data.DataFileSuffix) {
+			splitName := strings.Split(dirEntry.Name(), ".")
+			fileId, err := strconv.Atoi(splitName[0])
+			if err != nil {
+				return ErrDataDirCorrupt
+			}
+			fileIds = append(fileIds, uint32(fileId))
+		}
+	}
+	//对fileIds进行排序
+	sort.Slice(fileIds, func(i, j int) bool {
+		return fileIds[i] < fileIds[j]
+	})
+	db.fileIds = fileIds
+	//加载数据文件
+	for i, fileId := range fileIds {
+		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fileId))
+		if err != nil {
+			return err
+		}
+		if i == len(fileIds)-1 {
+			db.olderFiles[uint32(fileId)] = dataFile
+		} else {
+			db.activeFile = dataFile
+		}
+	}
+	return nil
+}
+
+// loadIndexFromDataFiles 加载索引数据文件
+func (db *DB) loadIndexFromDataFiles() error {
+	if len(db.fileIds) == 0 {
+		return nil
+	}
+	//遍历文件id，取出文件中的记录
+	for _, fileId := range db.fileIds {
+		var dataFile *data.DataFile
+		if fileId == db.activeFile.FileId {
+			dataFile = db.activeFile
+		} else {
+			dataFile = db.olderFiles[fileId]
+		}
+
+		//读取dataFile中的所有内容
+		var offset int64 = 0
+		for {
+			logRecord, size, err := dataFile.Read(offset)
+			if err != nil {
+				//如果读取到文件末尾，则跳出循环
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+			//构造内存索引
+			logRecordPos := data.LogRecordPos{
+				Fid:    fileId,
+				Offset: offset,
+			}
+			if logRecord.Type == data.LogRecordDelete {
+				db.index.Delete(logRecord.Key)
+			} else {
+				db.index.Put(logRecord.Key, &logRecordPos)
+			}
+			//更新offset
+			offset += size
+		}
+
+		//如果是活跃文件，则更新db中的写入偏移量
+		if fileId == db.activeFile.FileId {
+			db.activeFile.WriteOff = offset
+		}
+	}
+	return nil
+}
+
+// checkOptions 校验配置项
+func checkOptions(options Options) error {
+	if options.DirPath == "" {
+		return errors.New("DirPath is empty")
+	}
+	if options.DataFileSize <= 0 {
+		return errors.New("DataFileSize is invalid")
+	}
 	return nil
 }

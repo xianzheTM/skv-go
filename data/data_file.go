@@ -1,6 +1,10 @@
 package data
 
-import "skv-go/fio"
+import (
+	"skv-go/fio"
+)
+
+const DataFileSuffix = ".data"
 
 // DataFile 数据文件
 type DataFile struct {
@@ -15,8 +19,8 @@ func OpenDataFile(dirPath string, fileId uint32) (*DataFile, error) {
 	return nil, nil
 }
 
-func (df *DataFile) Read(offset int64) (*LogRecord, error) {
-	return nil, nil
+func (df *DataFile) Read(offset int64) (*LogRecord, int64, error) {
+	return nil, 0, nil
 }
 
 func (df *DataFile) Write(bytes []byte) error {

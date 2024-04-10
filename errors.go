@@ -8,4 +8,5 @@ var (
 	ErrKeyNotFound      = errors.New("key not found")
 	ErrDataFileNotFound = errors.New("data file error")
 	ErrDataDeleted      = errors.New("data deleted")
+	ErrDataDirCorrupt   = errors.New("data dir corrupt")
 )
