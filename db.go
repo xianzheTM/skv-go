@@ -82,6 +82,7 @@ func (db *DB) Put(key []byte, value []byte) error {
 	}
 }
 
+// Get 读取Key对应的Value，Key不能为空
 func (db *DB) Get(key []byte) ([]byte, error) {
 	db.rw.RLock()
 	defer db.rw.RUnlock()
@@ -114,7 +115,30 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	}
 
 	return logRecord.Value, nil
+}
 
+// Delete 删除一条数据，Key不能为空
+func (db *DB) Delete(key []byte) error {
+	if len(key) == 0 {
+		return ErrKeyIsEmpty
+	}
+	//判断key是否存在
+	if db.index.Get(key) == nil {
+		return nil
+	}
+
+	logRecord := data.LogRecord{
+		Key:  key,
+		Type: data.LogRecordDelete,
+	}
+	_, err := db.appendLogRecord(&logRecord)
+	if err != nil {
+		return err
+	}
+	if !db.index.Delete(key) {
+		return ErrIndexUpdate
+	}
+	return nil
 }
 
 // appendLogRecord 追加一条日志记录，并返回日志记录的位置用于维护索引
@@ -198,12 +222,12 @@ func (db *DB) loadDataFiles() error {
 	db.fileIds = fileIds
 	//加载数据文件
 	for i, fileId := range fileIds {
-		dataFile, err := data.OpenDataFile(db.options.DirPath, uint32(fileId))
+		dataFile, err := data.OpenDataFile(db.options.DirPath, fileId)
 		if err != nil {
 			return err
 		}
 		if i == len(fileIds)-1 {
-			db.olderFiles[uint32(fileId)] = dataFile
+			db.olderFiles[fileId] = dataFile
 		} else {
 			db.activeFile = dataFile
 		}
