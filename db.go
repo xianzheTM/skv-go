@@ -160,7 +160,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 
 		db.olderFiles[db.activeFile.FileId] = db.activeFile
 
-		//创建新的活跃文件
+		//创建新活跃文件
 		if err := db.setActiveFile(); err != nil {
 			return nil, err
 		}
