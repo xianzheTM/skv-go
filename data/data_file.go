@@ -2,7 +2,6 @@ package data
 
 import (
 	"fmt"
-	"hash/crc32"
 	"io"
 	"path/filepath"
 	"skv-go/fio"
@@ -67,7 +66,7 @@ func (df *DataFile) Read(offset int64) (*LogRecord, int64, error) {
 		logRecord.Key = kvBuf[:keySize]
 		logRecord.Value = kvBuf[keySize:]
 	}
-	crc := getLogRecordCRC(logRecord, headerBuf[crc32.Size:headerSize])
+	crc := getLogRecordCRC(logRecord, headerBuf[:headerSize])
 	if crc != header.crc {
 		return nil, 0, ErrInvalidCRC
 	}
@@ -101,8 +100,4 @@ func (df *DataFile) readNBytes(n int64, offset int64) (b []byte, err error) {
 	b = make([]byte, n)
 	_, err = df.IOManager.Read(b, offset)
 	return
-}
-
-func getLogRecordCRC(lr *LogRecord, header []byte) uint32 {
-	return 0
 }

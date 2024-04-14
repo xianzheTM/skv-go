@@ -3,6 +3,7 @@ package skv_go
 import (
 	"errors"
 	"io"
+	"log"
 	"os"
 	"skv-go/data"
 	"skv-go/index"
@@ -153,6 +154,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	encRecode, size := data.EncodeLogRecord(logRecord)
 	//如果写入的数据已经达到活跃文件的阈值，则将活跃文件设置为旧文件，并创建一个新的活跃文件
 	if db.activeFile.WriteOff+size > db.options.DataFileSize {
+		log.Print("active file is full, create a new one")
 		//先持久化数据文件
 		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
@@ -227,9 +229,9 @@ func (db *DB) loadDataFiles() error {
 			return err
 		}
 		if i == len(fileIds)-1 {
-			db.olderFiles[fileId] = dataFile
-		} else {
 			db.activeFile = dataFile
+		} else {
+			db.olderFiles[fileId] = dataFile
 		}
 	}
 	return nil

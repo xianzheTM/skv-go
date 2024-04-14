@@ -1,6 +1,9 @@
 package skv_go
 
-import "skv-go/index"
+import (
+	"os"
+	"skv-go/index"
+)
 
 type Options struct {
 	// 数据文件目录
@@ -11,4 +14,11 @@ type Options struct {
 	SyncWrite bool
 	//索引类型
 	IndexType index.IndexType
+}
+
+var DefaultOptions = Options{
+	DirPath:      os.TempDir(),
+	DataFileSize: 256 * 1024 * 1024,
+	SyncWrite:    false,
+	IndexType:    index.BTreeIndex,
 }
