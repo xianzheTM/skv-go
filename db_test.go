@@ -17,7 +17,7 @@ func TestPut(t *testing.T) {
 	options.DirPath = dir
 
 	db, _ := Open(options)
-	defer destoryDB(db)
+	defer destroyDB(db)
 
 	// Put a record
 	err := db.Put(utils.GetTestKey(1), utils.RandomValue(5))
@@ -85,13 +85,13 @@ func TestGet(t *testing.T) {
 	assert.Equal(t, []byte("universe"), value)
 
 	// Get a record after restarting the DB
-	err = db.activeFile.Close()
+	err = db.Close()
 	assert.NoError(t, err)
 	db, _ = Open(options)
 	value, err = db.Get([]byte("Hello"))
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("universe"), value)
-	destoryDB(db)
+	destroyDB(db)
 }
 
 func TestDelete(t *testing.T) {
@@ -102,7 +102,7 @@ func TestDelete(t *testing.T) {
 	options.DirPath = dir
 
 	db, _ := Open(options)
-	defer destoryDB(db)
+	defer destroyDB(db)
 
 	// Put a record
 	db.Put([]byte("Hello"), []byte("world"))
@@ -124,13 +124,61 @@ func TestDelete(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func destoryDB(db *DB) {
+func TestDB_ListKeys(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "test")
+
+	options := DefaultOptions
+	options.DirPath = dir
+
+	db, _ := Open(options)
+	defer destroyDB(db)
+
+	// Put some records
+	db.Put([]byte("Hello"), []byte("world"))
+	db.Put([]byte("Hello2"), []byte("world2"))
+
+	// List keys
+	keys := db.ListKeys()
+
+	// Check the keys
+	assert.Contains(t, keys, []byte("Hello"))
+	assert.Contains(t, keys, []byte("Hello2"))
+}
+
+func TestDB_Fold(t *testing.T) {
+	dir, _ := os.MkdirTemp("", "test")
+
+	options := DefaultOptions
+	options.DirPath = dir
+
+	db, _ := Open(options)
+	defer destroyDB(db)
+
+	// Put some records
+	db.Put([]byte("Hello"), []byte("world"))
+	db.Put([]byte("Hello2"), []byte("world2"))
+
+	// Fold the db
+	var keys [][]byte
+	var values [][]byte
+	err := db.Fold(func(key []byte, value []byte) bool {
+		keys = append(keys, key)
+		values = append(values, value)
+		return true
+	})
+
+	// Check the keys and values
+	assert.NoError(t, err)
+	assert.Contains(t, keys, []byte("Hello"))
+	assert.Contains(t, keys, []byte("Hello2"))
+	assert.Contains(t, values, []byte("world"))
+	assert.Contains(t, values, []byte("world2"))
+}
+
+func destroyDB(db *DB) {
 	if db != nil {
 		if db.activeFile != nil {
-			_ = db.activeFile.Close()
-		}
-		for _, olderFile := range db.olderFiles {
-			_ = olderFile.Close()
+			_ = db.Close()
 		}
 		err := os.RemoveAll(db.options.DirPath)
 		if err != nil {

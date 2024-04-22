@@ -58,6 +58,36 @@ func Open(options Options) (*DB, error) {
 	return db, nil
 }
 
+// Close 关闭数据库实例
+func (db *DB) Close() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.rw.Lock()
+	defer db.rw.Unlock()
+
+	if err := db.activeFile.Close(); err != nil {
+		return err
+	}
+
+	//close older files
+	for _, olderFile := range db.olderFiles {
+		if err := olderFile.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) Sync() error {
+	if db.activeFile == nil {
+		return nil
+	}
+	db.rw.Lock()
+	defer db.rw.Unlock()
+	return db.activeFile.Sync()
+}
+
 // Put 写入Key/Value数据，Key不能为空
 func (db *DB) Put(key []byte, value []byte) error {
 	//判断key是否为空
@@ -95,6 +125,41 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	if pos == nil {
 		return nil, ErrKeyNotFound
 	}
+	return db.getValueByPosition(pos)
+}
+
+// ListKeys 获取数据库中的所有key
+func (db *DB) ListKeys() [][]byte {
+	iterator := db.index.Iterator(false)
+	keys := make([][]byte, db.index.Size())
+	var idx int
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		keys[idx] = iterator.Key()
+		idx++
+	}
+	return keys
+}
+
+// Fold 获取所有的数据，并执行用户指定的操作
+func (db *DB) Fold(fn func(key []byte, value []byte) bool) error {
+	db.rw.RLock()
+	defer db.rw.RUnlock()
+
+	iterator := db.index.Iterator(false)
+	for iterator.Rewind(); iterator.Valid(); iterator.Next() {
+		key := iterator.Key()
+		value, err := db.getValueByPosition(iterator.Value())
+		if err != nil {
+			return err
+		}
+		if !fn(key, value) {
+			break
+		}
+	}
+	return nil
+}
+
+func (db *DB) getValueByPosition(pos *data.LogRecordPos) ([]byte, error) {
 	//找到数据文件
 	var dataFile *data.DataFile
 	if pos.Fid == db.activeFile.FileId {
